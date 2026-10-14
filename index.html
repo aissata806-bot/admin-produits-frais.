@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Administration</title>
+<style>
+:root{--g:#1f7a3d;--bg:#f4f6f4;--t:#1b1f1c;--m:#68706a;--b:#dfe4df;--w:#fff;--r:#c0392b}
+@media(prefers-color-scheme:dark){:root{--bg:#121512;--t:#eef2ee;--m:#9aa39c;--b:#2b312c;--w:#1b1f1c}}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--t)}
+input,select,button,textarea{font:inherit;color:inherit;background:var(--w);border:1px solid var(--b);border-radius:8px;padding:9px;max-width:100%}
+button{background:var(--g);color:#fff;border:0;cursor:pointer}button.s{background:var(--w);color:var(--t);border:1px solid var(--b)}
+nav{display:flex;gap:4px;overflow-x:auto;padding:8px;background:var(--w);border-bottom:1px solid var(--b);position:sticky;top:0}
+nav button{background:none;color:var(--m);white-space:nowrap}nav button.on{background:var(--g);color:#fff}
+main{padding:10px;max-width:760px;margin:auto}.bar{display:flex;gap:8px;margin-bottom:10px}.bar input{flex:1}
+.row,.card{background:var(--w);border:1px solid var(--b);border-radius:10px;padding:10px;margin-bottom:8px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.grow{flex:1;min-width:120px}small{color:var(--m);display:block}
+.row img{width:46px;height:46px;object-fit:cover;border-radius:8px;background:var(--b)}.pr{width:105px}
+.tag{font-size:12px;padding:2px 7px;border-radius:9px;background:var(--b)}.err{color:var(--r)}
+.login{max-width:320px;margin:15vh auto;display:grid;gap:10px;padding:16px}
+.sheet{position:fixed;inset:0;background:#0007;display:flex;align-items:flex-end;justify-content:center}
+.sheet form{background:var(--bg);width:100%;max-width:560px;max-height:92vh;overflow:auto;padding:14px;border-radius:14px 14px 0 0;display:grid;gap:9px}
+label.c{display:flex;gap:8px;align-items:center}#toast{display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:9px 14px;border-radius:9px}
+</style>
+</head>
+<body>
+<div id="app"></div><div id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+const db = supabase.createClient('https://ldsafzzxgradhlsfmmcx.supabase.co',
+'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxkc2Fmenp4Z3JhZGhsc2ZtbWN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5Mjk3MTUsImV4cCI6MjEwNzUwNTcxNX0.lO9gEkB1DQKIHmJhYL9GUf2cmqzuWtrEt9mL4joMREA');
+const $ = s => document.querySelector(s), app = $('#app');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const gnf = n => Number(n).toLocaleString('fr-FR') + ' GNF';
+const toast = t => { const m = $('#toast'); m.textContent = t; m.style.display = 'block'; setTimeout(() => m.style.display = 'none', 2500); };
+const run = async (p, t = 'Enregistré') => { const { error } = await p; toast(error ? 'Erreur : ' + error.message : t); return !error; };
+const ST = { en_attente:'En attente', en_preparation:'En préparation', en_cours_livraison:'En cours de livraison', livree:'Livrée', annulee:'Annulée' };
+const PAY = { cash:'Cash', orange_money:'Orange Money', mtn_momo:'MTN MoMo' };
+const UNITS = { kilo:'au kilo', tas:'au tas', unite:"à l'unité", sachet:'au sachet', litre:'au litre' };
+let cats = [], tab = 'produits';
+
+async function init() { const { data: { session } } = await db.auth.getSession(); session ? enter() : login(); }
+
+function login(msg = '') {
+  app.innerHTML = `<div class="login"><h2>Administration</h2><input id="em" type="email" placeholder="E-mail"><input id="pw" type="password" placeholder="Mot de passe"><button id="go">Se connecter</button><p class="err" id="er">${esc(msg)}</p></div>`;
+  $('#go').onclick = async () => {
+    const { error } = await db.auth.signInWithPassword({ email: $('#em').value.trim(), password: $('#pw').value });
+    error ? $('#er').textContent = 'Connexion refusée' : enter();
+  };
+}
+
+async function enter() {
+  const { data: { user } } = await db.auth.getUser();
+  const { data: p } = await db.from('profiles').select('role').eq('id', user.id).single();
+  if (!p || p.role !== 'admin') { await db.auth.signOut(); return login("Ce compte n'est pas administrateur"); }
+  cats = (await db.from('categories').select('*').order('sort_order')).data || [];
+  app.innerHTML = `<nav>${[['produits','Produits'],['commandes','Commandes'],['zones','Zones'],['reglages','Réglages']]
+    .map(([k, l]) => `<button data-t="${k}">${l}</button>`).join('')}<button class="s" id="out">Sortir</button></nav><main id="m"></main>`;
+  document.querySelectorAll('nav [data-t]').forEach(b => b.onclick = () => show(b.dataset.t));
+  $('#out').onclick = async () => { await db.auth.signOut(); login(); };
+  show('produits');
+}
+
+function show(t) {
+  tab = t;
+  document.querySelectorAll('nav [data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  ({ produits, commandes, zones, reglages })[t]();
+}
+
+/* ---------- PRODUITS ---------- */
+async function produits() {
+  const { data = [] } = await db.from('products').select('*').order('name');
+  const m = $('#m');
+  m.innerHTML = `<div class="bar"><input id="q" placeholder="Rechercher un produit"><button id="add">+ Produit</button></div><div id="l"></div>`;
+  const draw = () => {
+    const q = $('#q').value.toLowerCase();
+    $('#l').innerHTML = data.filter(p => p.name.toLowerCase().includes(q)).map(p => `
+      <div class="row" data-id="${p.id}">
+        <img src="${esc(p.image_url || '')}" alt="">
+        <div class="grow"><b>${esc(p.name)}</b><small>${UNITS[p.unit]} ${p.is_active ? '' : '· masqué'}</small></div>
+        <input class="pr" type="number" inputmode="numeric" value="${p.price}">
+        <label class="c"><input type="checkbox" class="st" ${p.in_stock ? 'checked' : ''}>Dispo</label>
+        <button class="s ed">Modifier</button></div>`).join('') || '<p>Aucun produit.</p>';
+  };
+  draw(); $('#q').oninput = draw; $('#add').onclick = () => form(null, data);
+  $('#l').onchange = e => {
+    const id = e.target.closest('.row')?.dataset.id; if (!id) return;
+    if (e.target.classList.contains('pr')) run(db.from('products').update({ price: +e.target.value, updated_at: new Date().toISOString() }).eq('id', id));
+    if (e.target.classList.contains('st')) run(db.from('products').update({ in_stock: e.target.checked }).eq('id', id));
+  };
+  $('#l').onclick = e => { if (e.target.classList.contains('ed')) form(data.find(p => p.id === e.target.closest('.row').dataset.id), data); };
+}
+
+const shrink = f => new Promise(r => {
+  const i = new Image();
+  i.onload = () => { const s = Math.min(1, 800 / Math.max(i.width, i.height)), c = document.createElement('canvas');
+    c.width = i.width * s; c.height = i.height * s; c.getContext('2d').drawImage(i, 0, 0, c.width, c.height); c.toBlob(r, 'image/jpeg', .75); };
+  i.src = URL.createObjectURL(f);
+});
+
+function form(p) {
+  p = p || { name:'', unit:'kilo', price:'', promo_price:null, in_stock:true, is_featured:false, is_active:true, image_url:'', category_id:cats[0]?.id };
+  const s = document.createElement('div'); s.className = 'sheet';
+  s.innerHTML = `<form><b>${p.id ? 'Modifier' : 'Nouveau'} produit</b>
+    <input name="name" placeholder="Nom" value="${esc(p.name)}" required>
+    <select name="cat">${cats.map(c => `<option value="${c.id}" ${c.id === p.category_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
+    <select name="unit">${Object.entries(UNITS).map(([k, v]) => `<option value="${k}" ${k === p.unit ? 'selected' : ''}>${v}</option>`).join('')}</select>
+    <input name="price" type="number" inputmode="numeric" placeholder="Prix (GNF)" value="${p.price}" required>
+    <input name="promo" type="number" inputmode="numeric" placeholder="Prix promo (facultatif)" value="${p.promo_price ?? ''}">
+    <label class="c"><input type="checkbox" name="stock" ${p.in_stock ? 'checked' : ''}>Disponible</label>
+    <label class="c"><input type="checkbox" name="feat" ${p.is_featured ? 'checked' : ''}>Produit du jour</label>
+    <label class="c"><input type="checkbox" name="act" ${p.is_active ? 'checked' : ''}>Visible dans l'application</label>
+    <input name="photo" type="file" accept="image/*">
+    <button>Enregistrer</button><button type="button" class="s" id="x">Annuler</button></form>`;
+  document.body.appendChild(s);
+  $('#x').onclick = () => s.remove();
+  s.querySelector('form').onsubmit = async e => {
+    e.preventDefault(); const f = e.target; let url = p.image_url;
+    if (f.photo.files[0]) {
+      const path = `${crypto.randomUUID()}.jpg`;
+      const { error } = await db.storage.from('product-images').upload(path, await shrink(f.photo.files[0]), { contentType: 'image/jpeg' });
+      if (error) return toast('Photo : ' + error.message);
+      url = db.storage.from('product-images').getPublicUrl(path).data.publicUrl;
+    }
+    const rec = { name: f.name.value.trim(), category_id: +f.cat.value, unit: f.unit.value, price: +f.price.value,
+      promo_price: f.promo.value === '' ? null : +f.promo.value, in_stock: f.stock.checked, is_featured: f.feat.checked,
+      is_active: f.act.checked, image_url: url, updated_at: new Date().toISOString() };
+    if (await run(p.id ? db.from('products').update(rec).eq('id', p.id) : db.from('products').insert(rec))) { s.remove(); produits(); }
+  };
+}
+
+/* ---------- COMMANDES ---------- */
+async function commandes() {
+  const m = $('#m');
+  m.innerHTML = `<div class="bar"><select id="f"><option value="">Tous les statuts</option>${Object.entries(ST).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><button class="s" id="rf">Actualiser</button></div><div id="l">Chargement…</div>`;
+  const load = async () => {
+    let q = db.from('orders').select('*, zones(name), delivery_slots(label)').order('created_at', { ascending: false }).limit(50);
+    if ($('#f').value) q = q.eq('status', $('#f').value);
+    const { data = [], error } = await q;
+    if (error) return $('#l').textContent = error.message;
+    $('#l').innerHTML = data.map(o => `<div class="card" data-id="${o.id}">
+      <b>#${o.order_number} · ${esc(o.contact_name || 'Client')}</b> <span class="tag">${PAY[o.payment_method]} · ${o.payment_status === 'paye' ? 'payé' : 'à payer'}</span>
+      <small>${esc(o.zones?.name)} · ${o.delivery_date} · ${esc(o.delivery_slots?.label)}</small>
+      <small>Repères : ${esc(o.delivery_landmarks)}</small>
+      <p><b>${gnf(o.total)}</b> ${o.contact_phone ? `· <a href="tel:${esc(o.contact_phone)}">${esc(o.contact_phone)}</a>` : ''}</p>
+      <div class="bar"><select class="os">${Object.entries(ST).map(([k, v]) => `<option value="${k}" ${k === o.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <button class="s it">Articles</button>${o.payment_status !== 'paye' ? '<button class="s pd">Marquer payé</button>' : ''}</div><div class="det"></div></div>`).join('') || '<p>Aucune commande.</p>';
+  };
+  await load(); $('#f').onchange = load; $('#rf').onclick = load;
+  $('#l').onchange = async e => { if (e.target.classList.contains('os')) { if (await run(db.from('orders').update({ status: e.target.value }).eq('id', e.target.closest('.card').dataset.id))) load(); } };
+  $('#l').onclick = async e => {
+    const c = e.target.closest('.card'); if (!c) return;
+    if (e.target.classList.contains('pd') && await run(db.from('orders').update({ payment_status: 'paye' }).eq('id', c.dataset.id))) load();
+    if (e.target.classList.contains('it')) {
+      const { data = [] } = await db.from('order_items').select('*').eq('order_id', c.dataset.id);
+      c.querySelector('.det').innerHTML = data.map(i => `<small>${i.quantity} × ${esc(i.product_name)} (${UNITS[i.unit]}) — ${gnf(i.line_total)}</small>`).join('');
+    }
+  };
+}
+
+/* ---------- ZONES ---------- */
+async function zones() {
+  const { data = [] } = await db.from('zones').select('*').order('id');
+  $('#m').innerHTML = data.map(z => `<div class="row" data-id="${z.id}"><div class="grow"><b>${esc(z.name)}</b><small>${z.by_appointment ? 'Sur rendez-vous' : ''}</small></div>
+    <input class="pr fee" type="number" inputmode="numeric" value="${z.delivery_fee}">
+    <label class="c"><input type="checkbox" class="act" ${z.is_active ? 'checked' : ''}>Active</label>
+    <label class="c"><input type="checkbox" class="free" ${z.free_delivery_eligible ? 'checked' : ''}>Gratuité possible</label></div>`).join('');
+  $('#m').onchange = e => {
+    const id = e.target.closest('.row').dataset.id, c = e.target.classList;
+    const v = c.contains('fee') ? { delivery_fee: +e.target.value } : c.contains('act') ? { is_active: e.target.checked } : { free_delivery_eligible: e.target.checked };
+    run(db.from('zones').update(v).eq('id', id));
+  };
+}
+
+/* ---------- RÉGLAGES ---------- */
+async function reglages() {
+  const { data = [] } = await db.from('app_settings').select('*').order('key');
+  $('#m').innerHTML = data.map(s => `<div class="row" data-k="${s.key}"><div class="grow"><b>${esc(s.description)}</b></div><input class="pr" type="number" inputmode="numeric" value="${s.value_int}"></div>`).join('');
+  $('#m').onchange = e => run(db.from('app_settings').update({ value_int: +e.target.value }).eq('key', e.target.closest('.row').dataset.k));
+}
+
+init();
+</script>
+</body>
+</html>
