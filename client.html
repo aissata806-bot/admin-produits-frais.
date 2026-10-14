@@ -225,7 +225,12 @@ async function account() {
   $('#out').onclick = async () => { await db.auth.signOut(); location.reload(); };
 }
 
-init();
+init();/* Connexion par numéro de téléphone (sans e-mail) */
+const _su = db.auth.signUp.bind(db.auth), _si = db.auth.signInWithPassword.bind(db.auth);
+const byPhone = ({ email, ...o }) => ({ ...o, phone: '+224' + email.split('@')[0] });
+db.auth.signUp = o => _su(byPhone(o));
+db.auth.signInWithPassword = o => _si(byPhone(o));
+  
 </script>
 </body>
 </html>
