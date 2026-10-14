@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f7a3d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Produits frais Conakry</title>
+<style>
+:root{--g:#1f7a3d;--bg:#f4f6f4;--t:#1b1f1c;--m:#68706a;--b:#dfe4df;--w:#fff;--r:#c0392b}
+@media(prefers-color-scheme:dark){:root{--bg:#121512;--t:#eef2ee;--m:#9aa39c;--b:#2b312c;--w:#1b1f1c}}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--t);padding-bottom:120px}
+input,select,button,textarea{font:inherit;color:inherit;background:var(--w);border:1px solid var(--b);border-radius:8px;padding:10px;max-width:100%}
+button{background:var(--g);color:#fff;border:0;cursor:pointer}button.s{background:var(--w);color:var(--t);border:1px solid var(--b)}
+main{padding:10px;max-width:640px;margin:auto}small{color:var(--m);display:block}.err{color:var(--r)}
+.g{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.pc,.card,.row{background:var(--w);border:1px solid var(--b);border-radius:12px;padding:9px;margin-bottom:8px}
+.pc{display:grid;gap:4px;align-content:start;margin:0}.pc img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:var(--b)}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between}.bar{display:flex;gap:8px;margin:8px 0}.bar input{flex:1}
+.chips{display:flex;gap:6px;overflow-x:auto;margin:8px 0}.chips button{white-space:nowrap}
+.st{display:flex;align-items:center;justify-content:space-between}.st button{width:38px}
+.tag{font-size:12px;padding:2px 8px;border-radius:9px;background:var(--b)}
+.tabs{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--w);border-top:1px solid var(--b);padding-bottom:env(safe-area-inset-bottom)}
+.tabs button{flex:1;background:none;color:var(--m);border-radius:0;padding:14px}.tabs button.on{color:var(--g);font-weight:700}
+.cb{display:none;position:fixed;left:10px;right:10px;bottom:calc(58px + env(safe-area-inset-bottom));background:var(--g);color:#fff;border-radius:12px;padding:10px;align-items:center;justify-content:space-between;gap:8px}
+.cb button{background:#fff;color:var(--g);font-weight:700}
+.sheet{position:fixed;inset:0;background:#0007;display:flex;align-items:flex-end;justify-content:center;z-index:5}
+.sheet form,.sheet>div{background:var(--bg);width:100%;max-width:560px;max-height:94vh;overflow:auto;padding:14px;border-radius:14px 14px 0 0;display:grid;gap:9px}
+.login{max-width:340px;margin:8vh auto;display:grid;gap:10px;padding:16px}
+.steps{display:flex;gap:4px;margin-top:6px}.steps i{flex:1;height:5px;border-radius:3px;background:var(--b)}.steps i.on{background:var(--g)}
+label.c{display:flex;gap:8px;align-items:center}#toast{display:none;position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:9px 14px;border-radius:9px;z-index:9}
+</style>
+</head>
+<body>
+<div id="app"></div><div id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+const db = supabase.createClient('https://ldsafzzxgradhlsfmmcx.supabase.co',
+'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxkc2Fmenp4Z3JhZGhsc2ZtbWN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5Mjk3MTUsImV4cCI6MjEwNzUwNTcxNX0.lO9gEkB1DQKIHmJhYL9GUf2cmqzuWtrEt9mL4joMREA');
+const $ = s => document.querySelector(s), app = $('#app');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const gnf = n => Number(n || 0).toLocaleString('fr-FR') + ' GNF';
+const toast = t => { const m = $('#toast'); m.textContent = t; m.style.display = 'block'; setTimeout(() => m.style.display = 'none', 3000); };
+const LS = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+const UNITS = { kilo:'au kilo', tas:'au tas', unite:"à l'unité", sachet:'au sachet', litre:'au litre' };
+const STEPS = ['en_attente', 'en_preparation', 'en_cours_livraison', 'livree'];
+const STL = { en_attente:'Commande reçue', en_preparation:'En préparation', en_cours_livraison:'En cours de livraison', livree:'Livrée', annulee:'Annulée' };
+let dev = LS.get('dev', null); if (!dev) { dev = crypto.randomUUID(); LS.set('dev', dev); }
+const S = { user:null, profile:null, cats:[], prods:[], zones:[], hoods:[], slots:[], cfg:{}, cart:LS.get('cart', {}), cat:0, q:'', tab:'shop', wallet:0, pts:0 };
+const pr = p => p.promo_price ?? p.price, step = p => p.unit === 'kilo' ? .5 : 1;
+const sub = () => Object.entries(S.cart).reduce((t, [id, q]) => { const p = S.prods.find(x => x.id === id); return p ? t + Math.round(pr(p) * q) : t; }, 0);
+const count = () => Object.keys(S.cart).filter(id => S.prods.some(p => p.id === id)).length;
+const setQ = (id, q) => { q = Math.max(0, q); q ? S.cart[id] = q : delete S.cart[id]; LS.set('cart', S.cart); };
+const normPhone = v => { let d = v.replace(/\D/g, ''); if (d.startsWith('224') && d.length === 12) d = d.slice(3); return /^\d{9}$/.test(d) ? d : null; };
+const mail = d => `${d}@tel.example.com`;
+
+/* ---------- CONNEXION ---------- */
+async function init() { const { data: { session } } = await db.auth.getSession(); if (session) { S.user = session.user; boot(); } else auth(); }
+
+function auth(signup = false) {
+  app.innerHTML = `<form class="login"><h2>Produits frais<br>Conakry</h2>
+    ${signup ? '<input name="fn" placeholder="Prénom" required><input name="ln" placeholder="Nom" required>' : ''}
+    <input name="tel" type="tel" inputmode="numeric" placeholder="Téléphone (ex : 622 00 00 00)" required>
+    <input name="pw" type="password" placeholder="Mot de passe (6 caractères min.)" required>
+    ${signup ? '<input name="code" placeholder="Code de parrainage (facultatif)">' : ''}
+    <button>${signup ? 'Créer mon compte' : 'Se connecter'}</button>
+    <button type="button" class="s" id="sw">${signup ? "J'ai déjà un compte" : 'Créer un compte'}</button></form>`;
+  $('#sw').onclick = () => auth(!signup);
+  app.querySelector('form').onsubmit = async e => {
+    e.preventDefault(); const f = e.target, d = normPhone(f.tel.value);
+    if (!d) return toast('Numéro invalide : 9 chiffres attendus');
+    if (!signup) {
+      const { data, error } = await db.auth.signInWithPassword({ email: mail(d), password: f.pw.value });
+      if (error) return toast('Numéro ou mot de passe incorrect');
+      S.user = data.user; return boot();
+    }
+    const { data, error } = await db.auth.signUp({ email: mail(d), password: f.pw.value,
+      options: { data: { phone: '+224' + d, first_name: f.fn.value.trim(), last_name: f.ln.value.trim() } } });
+    if (error) return toast(/registered/i.test(error.message) ? 'Ce numéro a déjà un compte' : error.message);
+    if (!data.session) return toast("Compte créé mais non connecté : la confirmation par e-mail est encore active dans Supabase");
+    S.user = data.user;
+    await db.from('user_devices').upsert({ user_id: S.user.id, device_id: dev }, { onConflict: 'user_id,device_id' });
+    if (f.code.value.trim()) { const { error: e2 } = await db.rpc('apply_referral_code', { p_code: f.code.value }); if (e2) toast('Code de parrainage : ' + e2.message); }
+    boot();
+  };
+}
+
+/* ---------- DEMARRAGE ---------- */
+const get = async (k, q) => { const r = await q; if (!r.error && r.data) { LS.set(k, r.data); return r.data; } return LS.get(k, []); };
+async function bal() {
+  const [w, l] = await Promise.all([db.from('wallet_balances').select('balance').eq('user_id', S.user.id).maybeSingle(),
+    db.from('loyalty_balances').select('points').eq('user_id', S.user.id).maybeSingle()]);
+  S.wallet = +(w.data?.balance || 0); S.pts = +(l.data?.points || 0);
+}
+async function boot() {
+  [S.cats, S.prods, S.zones, S.hoods, S.slots] = await Promise.all([
+    get('cats', db.from('categories').select('*').order('sort_order')), get('prods', db.from('products').select('*').order('name')),
+    get('zones', db.from('zones').select('*').order('id')), get('hoods', db.from('neighborhoods').select('*').order('name')),
+    get('slots', db.from('delivery_slots').select('*').order('start_time'))]);
+  S.cfg = Object.fromEntries((await get('cfg', db.from('app_settings').select('*'))).map(s => [s.key, s.value_int]));
+  S.profile = (await db.from('profiles').select('*').eq('id', S.user.id).single()).data || {};
+  db.from('user_devices').upsert({ user_id: S.user.id, device_id: dev }, { onConflict: 'user_id,device_id' });
+  bal();
+  app.innerHTML = `<main id="m"></main><div class="cb" id="cb"></div><div class="tabs">${[['shop','Boutique'],['orders','Commandes'],['account','Compte']]
+    .map(([k, l]) => `<button data-t="${k}">${l}</button>`).join('')}</div>`;
+  document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => show(b.dataset.t));
+  $('#cb').onclick = checkout;
+  setInterval(() => { if (S.tab === 'orders') orders(true); }, 20000);
+  show('shop');
+}
+function show(t) {
+  S.tab = t; document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  ({ shop, orders, account })[t](); bar();
+}
+
+/* ---------- BOUTIQUE ---------- */
+function bar() {
+  const b = $('#cb'); if (!b) return; b.style.display = count() && S.tab === 'shop' ? 'flex' : 'none';
+  b.innerHTML = `<span>${count()} produit(s)</span><b>${gnf(sub())}</b><button>Voir le panier</button>`;
+}
+function shop() {
+  $('#m').innerHTML = `<input id="q" style="width:100%" placeholder="Rechercher un produit" value="${esc(S.q)}">
+    <div class="chips">${[{ id: 0, name: 'Tout' }, ...S.cats].map(c => `<button class="${c.id === S.cat ? '' : 's'}" data-c="${c.id}">${esc(c.name)}</button>`).join('')}</div><div id="l" class="g"></div>`;
+  $('#q').oninput = e => { S.q = e.target.value; list(); };
+  $('#m').onclick = e => {
+    const d = e.target.dataset;
+    if (d.c !== undefined) { S.cat = +d.c; return shop(); }
+    if (d.p || d.m) { const p = S.prods.find(x => x.id === (d.p || d.m)); setQ(p.id, (S.cart[p.id] || 0) + (d.p ? step(p) : -step(p))); list(); }
+  };
+  list();
+}
+function list() {
+  const q = S.q.toLowerCase(), L = S.prods.filter(p => (!S.cat || p.category_id === S.cat) && p.name.toLowerCase().includes(q));
+  $('#l').innerHTML = L.map(p => { const n = S.cart[p.id] || 0; return `<div class="pc"><img loading="lazy" src="${esc(p.image_url || '')}" alt="">
+    <b>${esc(p.name)}</b><small>${UNITS[p.unit]}</small>
+    <div>${p.promo_price != null ? `<s>${gnf(p.price)}</s> ` : ''}<b>${gnf(pr(p))}</b></div>
+    ${!p.in_stock ? '<span class="tag">Épuisé</span>' : n ? `<div class="st"><button data-m="${p.id}">−</button><span>${n}</span><button data-p="${p.id}">+</button></div>` : `<button data-p="${p.id}">Ajouter</button>`}</div>`; }).join('') || '<p>Aucun produit.</p>';
+  bar();
+}
+
+/* ---------- COMMANDE ---------- */
+async function checkout() {
+  await bal();
+  Object.keys(S.cart).forEach(id => { if (!S.prods.some(p => p.id === id)) delete S.cart[id]; });
+  const ids = Object.keys(S.cart); if (!ids.length) return;
+  const { data: ad = [] } = await db.from('addresses').select('*, zones(name)').eq('user_id', S.user.id).order('created_at', { ascending: false });
+  const zs = S.zones.filter(z => z.is_active), canPts = S.pts >= (S.cfg.loyalty_min_points_redeem || 20);
+  const s = document.createElement('div'); s.className = 'sheet';
+  s.innerHTML = `<form><b>Mon panier</b>
+    ${ids.map(id => { const p = S.prods.find(x => x.id === id); return `<div class="row"><span>${esc(p.name)}</span><span>${S.cart[id]} × ${gnf(pr(p))}</span></div>`; }).join('')}
+    <b>Livraison</b>
+    <select name="addr">${ad.map(a => `<option value="${a.id}">${esc(a.zones?.name)} · ${esc(a.landmarks.slice(0, 40))}</option>`).join('')}<option value="new">+ Nouvelle adresse</option></select>
+    <div id="nw" style="display:grid;gap:9px">
+      <select name="zone">${zs.map(z => `<option value="${z.id}">${esc(z.name)}</option>`).join('')}</select>
+      <select name="hood"></select>
+      <textarea name="land" rows="2" placeholder="Points de repère (obligatoire) : ex. en face de la station Total, immeuble jaune"></textarea>
+      <button type="button" class="s" id="gps">Me géolocaliser</button></div>
+    <select name="slot">${S.slots.filter(x => x.is_active).map(x => `<option value="${x.id}">${esc(x.label)} (${x.start_time.slice(0, 5)} - ${x.end_time.slice(0, 5)})</option>`).join('')}</select>
+    <select name="date">${[0, 1, 2].map(i => { const d = new Date(Date.now() + i * 864e5).toISOString().slice(0, 10); return `<option value="${d}" ${i === 1 ? 'selected' : ''}>${["Aujourd'hui", 'Demain', 'Après-demain'][i]} (${d})</option>`; }).join('')}</select>
+    <label class="c"><input type="radio" checked> Paiement en espèces à la livraison</label><small>Orange Money et MTN MoMo : bientôt disponibles.</small>
+    ${S.wallet > 0 ? `<label class="c"><input type="checkbox" name="w"> Utiliser mon portefeuille (${gnf(S.wallet)})</label>` : ''}
+    ${canPts ? `<label class="c"><input type="checkbox" name="pt"> Utiliser mes points (${S.pts})</label>` : ''}
+    <div class="card" id="sm"></div>
+    <button>Valider la commande</button><button type="button" class="s" id="x">Retour</button></form>`;
+  document.body.appendChild(s); $('#x').onclick = () => { s.remove(); bar(); };
+  const f = s.querySelector('form'); let pos = null;
+  const zid = () => f.addr.value === 'new' ? +f.zone.value : ad.find(a => a.id === f.addr.value).zone_id;
+  const upd = async e => {
+    s.querySelector('#nw').style.display = f.addr.value === 'new' ? 'grid' : 'none';
+    if (!e || e.target.name === 'zone') f.hood.innerHTML = '<option value="">Quartier (facultatif)</option>' + S.hoods.filter(h => h.zone_id === +f.zone.value).map(h => `<option value="${h.id}">${esc(h.name)}</option>`).join('');
+    const z = S.zones.find(x => x.id === zid()), st = sub();
+    const { data: fee, error } = await db.rpc('compute_delivery_fee', { p_zone_id: z.id, p_subtotal: st });
+    if (error) return s.querySelector('#sm').textContent = error.message;
+    const left = (S.cfg.free_delivery_threshold || 0) - st;
+    s.querySelector('#sm').innerHTML = `<div class="row"><span>Sous-total</span><b>${gnf(st)}</b></div><div class="row"><span>Livraison</span><b>${fee ? gnf(fee) : 'Gratuite'}</b></div>
+      ${z.free_delivery_eligible && left > 0 ? `<small>Plus que ${gnf(left)} pour la livraison gratuite</small>` : ''}
+      ${z.by_appointment ? '<small>Zone sur rendez-vous : nous vous appellerons pour confirmer.</small>' : ''}
+      <div class="row"><span>Total estimé</span><b>${gnf(st + fee)}</b></div><small>Parrainage, points et portefeuille sont déduits à la validation.</small>`;
+  };
+  f.onchange = upd; upd();
+  $('#gps').onclick = () => navigator.geolocation ? navigator.geolocation.getCurrentPosition(
+    p => { pos = { lat: p.coords.latitude, lng: p.coords.longitude }; $('#gps').textContent = 'Position enregistrée ✓'; },
+    () => toast("Position indisponible : autorisez la localisation"), { enableHighAccuracy: true, timeout: 15000 }) : toast('Géolocalisation non disponible');
+  f.onsubmit = async e => {
+    e.preventDefault(); let aid = f.addr.value;
+    if (aid === 'new') {
+      if (!f.land.value.trim()) return toast('Les points de repère sont obligatoires');
+      const { data, error } = await db.from('addresses').insert({ user_id: S.user.id, zone_id: +f.zone.value, neighborhood_id: f.hood.value ? +f.hood.value : null,
+        landmarks: f.land.value.trim(), latitude: pos?.lat ?? null, longitude: pos?.lng ?? null }).select().single();
+      if (error) return toast(error.message); aid = data.id;
+    }
+    const { error } = await db.rpc('place_order', { p_address_id: aid, p_slot_id: +f.slot.value, p_delivery_date: f.date.value, p_payment_method: 'cash',
+      p_items: ids.map(id => ({ product_id: id, quantity: S.cart[id] })), p_points_to_use: f.pt?.checked ? S.pts : 0, p_use_wallet: !!f.w?.checked });
+    if (error) return toast(error.message);
+    S.cart = {}; LS.set('cart', {}); s.remove(); toast('Commande envoyée, merci !'); show('orders');
+  };
+}
+
+/* ---------- COMMANDES ---------- */
+async function orders(silent) {
+  if (!silent) $('#m').innerHTML = '<p>Chargement…</p>';
+  const { data = [], error } = await db.from('orders').select('*, delivery_slots(label)').eq('user_id', S.user.id).order('created_at', { ascending: false }).limit(30);
+  if (S.tab !== 'orders') return;
+  if (error) return $('#m').innerHTML = `<p class="err">${esc(error.message)}</p>`;
+  $('#m').innerHTML = data.map(o => { const i = STEPS.indexOf(o.status); return `<div class="card"><div class="row" style="border:0;padding:0;margin:0"><b>Commande n°${o.order_number}</b><span class="tag">${STL[o.status]}</span></div>
+    <small>${o.delivery_date} · ${esc(o.delivery_slots?.label)}</small><p><b>${gnf(o.total)}</b></p>
+    ${o.status === 'annulee' ? '' : `<div class="steps">${STEPS.map((_, k) => `<i class="${k <= i ? 'on' : ''}"></i>`).join('')}</div>`}</div>`; }).join('') || '<p>Aucune commande pour le moment.</p>';
+}
+
+/* ---------- COMPTE ---------- */
+async function account() {
+  await bal(); const p = S.profile, c = S.cfg;
+  $('#m').innerHTML = `<div class="card"><b>${esc(p.first_name)} ${esc(p.last_name)}</b><small>${esc(p.phone)}</small></div>
+    <div class="card"><b>Parrainage</b><p>Votre code : <b>${esc(p.referral_code)}</b></p>
+    <small>Vos amis reçoivent ${gnf(c.referral_referee_discount)} sur leur première commande. Vous gagnez ${gnf(c.referral_referrer_credit)} dans votre portefeuille quand elle est livrée et payée.</small>
+    <div class="bar"><button id="sh">Partager mon code</button></div></div>
+    <div class="card"><b>Portefeuille</b> : ${gnf(S.wallet)}<br><b>Points</b> : ${S.pts}
+    <small>1 point par ${gnf(c.loyalty_amount_per_point)} dépensés. 1 point = ${gnf(c.loyalty_point_value)}, utilisable dès ${c.loyalty_min_points_redeem} points.</small></div>
+    ${p.referred_by ? '' : `<div class="card"><b>J'ai un code de parrainage</b><div class="bar"><input id="rc" placeholder="Code"><button id="ra">Valider</button></div><small>À saisir avant la première commande.</small></div>`}
+    <button class="s" id="out">Se déconnecter</button>`;
+  $('#sh').onclick = () => { const t = `Commande tes fruits et légumes frais à Conakry avec mon code ${p.referral_code} : ${location.origin}${location.pathname}`;
+    navigator.share ? navigator.share({ text: t }).catch(() => {}) : open('https://wa.me/?text=' + encodeURIComponent(t)); };
+  if ($('#ra')) $('#ra').onclick = async () => { const { error } = await db.rpc('apply_referral_code', { p_code: $('#rc').value });
+    if (error) return toast(error.message); toast('Code enregistré'); S.profile = (await db.from('profiles').select('*').eq('id', S.user.id).single()).data; account(); };
+  $('#out').onclick = async () => { await db.auth.signOut(); location.reload(); };
+}
+
+init();
+</script>
+</body>
+</html>
